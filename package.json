@@ -1,0 +1,18 @@
+{
+  "name": "rss-discord-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.42.3",
+    "cheerio": "^1.0.0-rc.12",
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "rss-parser": "^3.12.0",
+    "node-fetch": "^3.3.2"
+  }
+}
