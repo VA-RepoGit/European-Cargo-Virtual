@@ -31,7 +31,7 @@ const routes = [
 
 // SAFE helper
 function safe(value, fallback = "N/A") {
-  if (value === undefined || value === null) return fallback;
+  if (value === undefined || value === null || value === "") return fallback;
   return String(value);
 }
 
@@ -151,21 +151,30 @@ routes.forEach((route) => {
         await channel.send({ embeds: [embed] });
       }
 
-      // ===== PILOT ROSTER =====
+      // ===== PILOT ROSTER (Updated) =====
       if (route.type === "pilot") {
-        const pilotData = payload.data?.pilot ?? payload.data;
-        const user = pilotData?.user ?? pilotData;
-        if (!user) return;
+        const pilot = payload.data?.pilot ?? payload.data;
+        if (!pilot) return;
+
+        // Extraction des données corrigée pour vAMSYS Orwell
+        const pilotName = pilot.name || (pilot.user ? pilot.user.name : "Inconnu");
+        const vaId = pilot.callsign || pilot.vamsys_id || "N/A";
+        const status = pilot.status || "N/A";
 
         const embed = new EmbedBuilder()
           .setTitle("👤 Pilot Roster Update")
-          .setColor("#3498db")
+          .setColor(status === "active" ? "#2ecc71" : "#3498db")
           .addFields(
-            { name: "Pilot", value: safe(user.name), inline: true },
-            { name: "VA ID", value: safe(user.va_id), inline: true },
-            { name: "Status", value: safe(pilotData.status), inline: true }
+            { name: "Pilot", value: safe(pilotName), inline: true },
+            { name: "VA ID", value: safe(vaId), inline: true },
+            { name: "Status", value: `\`${safe(status)}\``, inline: true }
           )
           .setTimestamp();
+
+        // Ajoute la photo de profil si disponible
+        if (pilot.profile_picture) {
+          embed.setThumbnail(pilot.profile_picture);
+        }
 
         await channel.send({ embeds: [embed] });
       }
