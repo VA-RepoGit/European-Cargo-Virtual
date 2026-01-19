@@ -151,38 +151,74 @@ routes.forEach((route) => {
         await channel.send({ embeds: [embed] });
       }
 
-      // ===== PILOT ROSTER (Updated) =====
+// ===== PILOT ROSTER (Gestion des événements cochés) =====
       if (route.type === "pilot") {
-        const pilot = payload.data?.pilot ?? payload.data;
-        if (!pilot) return;
+        const pilotData = payload.data?.pilot || payload.data;
+        if (!pilotData) return;
 
-        // Extraction des données corrigée pour vAMSYS Orwell
-        const pilotName = pilot.name || (pilot.user ? pilot.user.name : "Inconnu");
-        const vaId = pilot.callsign || pilot.vamsys_id || "N/A";
-        const status = pilot.status || "N/A";
+        // Extraction des données de base
+        const pilotName = pilotData.name || (pilotData.user ? pilotData.user.name : "Inconnu");
+        const vaId = pilotData.callsign || pilotData.username || "N/A";
+        const eventType = payload.event; // ex: pilot.registered, pilot.rank_changed
+
+        // Personnalisation selon l'événement coché
+        let eventTitle = "👤 Mise à jour Pilote";
+        let eventColor = "#3498db";
+
+        switch (eventType) {
+          case "pilot.registered":
+            eventTitle = "🆕 Nouveau Pilote Enregistré";
+            eventColor = "#3498db";
+            break;
+          case "pilot.approved":
+            eventTitle = "✅ Pilote Approuvé";
+            eventColor = "#2ecc71";
+            break;
+          case "pilot.rejected":
+            eventTitle = "❌ Inscription Refusée";
+            eventColor = "#e74c3c";
+            break;
+          case "pilot.banned":
+            eventTitle = "🔨 Pilote Banni";
+            eventColor = "#000000";
+            break;
+          case "pilot.unbanned":
+            eventTitle = "🔓 Pilote Débanni";
+            eventColor = "#f1c40f";
+            break;
+          case "pilot.deleted":
+            eventTitle = "🗑️ Compte Pilote Supprimé";
+            eventColor = "#95a5a6";
+            break;
+          case "pilot.rank_changed":
+            eventTitle = "📈 Changement de Grade";
+            eventColor = "#9b59b6";
+            break;
+        }
 
         const embed = new EmbedBuilder()
-          .setTitle("👤 Pilot Roster Update")
-          .setColor(status === "active" ? "#2ecc71" : "#3498db")
+          .setTitle(eventTitle)
+          .setColor(eventColor)
           .addFields(
-            { name: "Pilot", value: safe(pilotName), inline: true },
-            { name: "VA ID", value: safe(vaId), inline: true },
-            { name: "Status", value: `\`${safe(status)}\``, inline: true }
+            { name: "Pilote", value: safe(pilotName), inline: true },
+            { name: "Identifiant VA", value: safe(vaId), inline: true },
+            { name: "Événement", value: `\`${eventType}\``, inline: true }
           )
           .setTimestamp();
 
-        // Ajoute la photo de profil si disponible
-        if (pilot.profile_picture) {
-          embed.setThumbnail(pilot.profile_picture);
+        // Ajout du nouveau grade si l'événement est un changement de grade
+        if (eventType === "pilot.rank_changed" && pilotData.rank) {
+            embed.addFields({ name: "Nouveau Grade", value: safe(pilotData.rank.name), inline: false });
+        }
+
+        // Image de profil
+        const profilePic = pilotData.profile_picture || (pilotData.user ? pilotData.user.profile_picture : null);
+        if (profilePic) {
+          embed.setThumbnail(profilePic);
         }
 
         await channel.send({ embeds: [embed] });
       }
-
-      console.log(`📨 vAMSYS webhook processed (${payload.event})`);
-    } catch (err) {
-      console.error("Webhook processing error:", err);
-    }
   });
 });
 
