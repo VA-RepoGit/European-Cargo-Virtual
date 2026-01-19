@@ -143,7 +143,7 @@ routes.forEach((route) => {
         if (pirep.id) {
           embed.addFields({
             name: "PIREP",
-            value: `[View on vAMSYS](https://vamsys.io/pireps/${pirep.id})`,
+            value: `[View on vAMSYS](https://vamsys.io/phoenix/flight-center/pireps/${pirep.id})`,
             inline: true,
           });
         }
