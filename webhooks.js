@@ -88,17 +88,17 @@ routes.forEach((route) => {
           .setColor(statusInfo.color)
           .addFields(
             { name: "Route", value: `${safe(pirep.departure_airport?.icao, "----")} → ${safe(pirep.arrival_airport?.icao, "----")}`, inline: true },
-            { name: "Appareil", value: safe(pirep.aircraft?.name), inline: true },
-            { name: "Réseau", value: safe(pirep.network, "Offline"), inline: true },
-            { name: "Temps de vol", value: pirep.flight_length !== undefined ? `${Math.round(pirep.flight_length / 60)} min` : "N/A", inline: true },
-            { name: "Taux d'atterrissage", value: pirep.landing_rate !== undefined ? `${pirep.landing_rate} fpm` : "N/A", inline: true },
-            { name: "Statut", value: statusInfo.label, inline: true }
+            { name: "Aircraft", value: safe(pirep.aircraft?.name), inline: true },
+            { name: "Network", value: safe(pirep.network, "Offline"), inline: true },
+            { name: "Flight Time", value: pirep.flight_length !== undefined ? `${Math.round(pirep.flight_length / 60)} min` : "N/A", inline: true },
+            { name: "Landing Rate", value: pirep.landing_rate !== undefined ? `${pirep.landing_rate} fpm` : "N/A", inline: true },
+            { name: "Status", value: statusInfo.label, inline: true }
           )
           .setFooter({ text: `ID PIREP : ${safe(pirep.id)} • vAMSYS` })
           .setTimestamp(pirep.created_at ? new Date(pirep.created_at) : new Date());
 
         if (pirep.id) {
-          embed.addFields({ name: "Lien", value: `[Voir sur vAMSYS](https://vamsys.io/phoenix/flight-center/pireps/${pirep.id})`, inline: true });
+          embed.addFields({ name: "Link", value: `[See on vAMSYS](https://vamsys.io/phoenix/flight-center/pireps/${pirep.id})`, inline: true });
         }
         await channel.send({ embeds: [embed] });
       }
