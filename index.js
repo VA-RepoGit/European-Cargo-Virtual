@@ -8,6 +8,9 @@ import { data as announceData, execute as announceExecute } from './commands/ann
 import { data as statusData } from './commands/status.js';
 import { execute as statusExec } from './commands/status-exec.js';
 import { data as handlingData, execute as handlingExec } from './commands/handling.js';
+// 🆕 Ajout des fichiers de maintenance
+import { data as maintResetData } from './commands/maint-reset.js';
+import { execute as maintResetExec } from './commands/maint-reset-exec.js';
 
 dotenv.config();
 
@@ -15,7 +18,7 @@ dotenv.config();
 const CHECK_INTERVAL_MINUTES = 30;
 
 // === Création du bot Discord ===
-export const client = new Client({   // <- 🆕 Export ajouté ici
+export const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -29,6 +32,8 @@ client.commands = new Collection();
 client.commands.set(announceData.name, { data: announceData, execute: announceExecute });
 client.commands.set(statusData.name, { data: statusData, execute: statusExec });
 client.commands.set(handlingData.name, { data: handlingData, execute: handlingExec });
+// 🆕 Enregistrement de la commande de maintenance dans la collection
+client.commands.set(maintResetData.name, { data: maintResetData, execute: maintResetExec });
 
 // === Enregistrement des commandes sur Discord ===
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -38,7 +43,14 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     console.log('🚀 Enregistrement des commandes slash...');
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: [announceData.toJSON(), statusData.toJSON(), handlingData.toJSON()] }
+      { 
+        body: [
+          announceData.toJSON(), 
+          statusData.toJSON(), 
+          handlingData.toJSON(),
+          maintResetData.toJSON() // 🆕 Ajout ici pour Discord
+        ] 
+      }
     );
     console.log('✅ Commandes slash enregistrées avec succès.');
   } catch (error) {
@@ -47,7 +59,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 })();
 
 // === Événement "ready" ===
-client.once('ready', async () => {   // <- 🆕 Correction ici
+client.once('ready', async () => {
   console.log(`🤖 Connecté en tant que ${client.user.tag}`);
   console.log(`[${new Date().toISOString()}] 🚀 Démarrage initial du bot.`);
 
@@ -82,7 +94,7 @@ client.on('interactionCreate', async (interaction) => {
   } catch (error) {
     console.error(`❌ Erreur lors de l’exécution de /${interaction.commandName} :`, error);
 
-    if (!interaction.replied) {
+    if (!interaction.replied && !interaction.deferred) {
       await interaction.reply({
         content: '⚠️ Une erreur est survenue lors de l’exécution de la commande.',
         flags: 64
@@ -114,5 +126,5 @@ app.listen(PORT, () => {
 // === Import final ===
 import webhookRouter, { attachWebhookClient } from "./webhooks.js";
 
-attachWebhookClient(client);       // attach Discord client to router
-app.use("/", webhookRouter);       // mount routes on Express server
+attachWebhookClient(client);
+app.use("/", webhookRouter);
