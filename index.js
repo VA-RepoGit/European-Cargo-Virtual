@@ -11,6 +11,9 @@ import { data as handlingData, execute as handlingExec } from './commands/handli
 // 🆕 Ajout des fichiers de maintenance
 import { data as maintResetData } from './commands/maint-reset.js';
 import { execute as maintResetExec } from './commands/maint-reset-exec.js';
+// 🆕 Ajout de la commande Fleet Status
+import { data as fleetStatusData } from './commands/fleet-status.js';
+import { execute as fleetStatusExec } from './commands/fleet-status-exec.js';
 
 dotenv.config();
 
@@ -32,8 +35,8 @@ client.commands = new Collection();
 client.commands.set(announceData.name, { data: announceData, execute: announceExecute });
 client.commands.set(statusData.name, { data: statusData, execute: statusExec });
 client.commands.set(handlingData.name, { data: handlingData, execute: handlingExec });
-// 🆕 Enregistrement de la commande de maintenance dans la collection
 client.commands.set(maintResetData.name, { data: maintResetData, execute: maintResetExec });
+client.commands.set(fleetStatusData.name, { data: fleetStatusData, execute: fleetStatusExec });
 
 // === Enregistrement des commandes sur Discord ===
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -48,7 +51,8 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
           announceData.toJSON(), 
           statusData.toJSON(), 
           handlingData.toJSON(),
-          maintResetData.toJSON() // 🆕 Ajout ici pour Discord
+          maintResetData.toJSON(),
+          fleetStatusData.toJSON() // 🆕 Ajout ici pour Discord
         ] 
       }
     );
