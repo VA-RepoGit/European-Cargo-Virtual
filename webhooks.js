@@ -1,6 +1,7 @@
 import express from "express";
 import crypto from "crypto";
 import { EmbedBuilder } from "discord.js";
+import { getAircraftStatus, updateAircraftStatus } from './utils/supabase.js';
 
 const router = express.Router();
 
@@ -29,7 +30,10 @@ const routes = [
   },
 ];
 
-// Helper pour éviter les valeurs vides (N/A par défaut)
+// Constantes de maintenance (Heures)
+const THRESHOLDS = { D: 20000, C: 4000, B: 1000, A: 500 };
+
+// Helper pour éviter les valeurs vides
 function safe(value, fallback = "N/A") {
   if (value === undefined || value === null || value === "") return fallback;
   return String(value);
@@ -47,143 +51,129 @@ function getPirepStatus(status) {
 routes.forEach((route) => {
   router.post(route.path, async (req, res) => {
     try {
-      // 1. Vérification de la signature vAMSYS
       const signature = req.headers["x-vamsys-signature"];
       const raw = req.rawBody;
 
-      if (!signature || !raw) {
-        return res.status(401).json({ error: "Missing signature or body" });
-      }
+      if (!signature || !raw) return res.status(401).json({ error: "Missing signature" });
 
-      const expected = crypto
-        .createHmac("sha256", route.secret)
-        .update(raw)
-        .digest("hex");
+      const expected = crypto.createHmac("sha256", route.secret).update(raw).digest("hex");
+      if (signature !== expected) return res.status(401).json({ error: "Invalid signature" });
 
-      if (signature !== expected) {
-        console.log(`❌ Signature invalide pour ${route.path}`);
-        return res.status(401).json({ error: "Invalid signature" });
-      }
-
-      // Répondre immédiatement à vAMSYS pour éviter les timeouts
       res.status(200).json({ received: true });
 
       const payload = req.body;
       if (!payload.event || !payload.event.startsWith(route.type)) return;
 
       const channel = router.client?.channels.cache.get(route.channel);
-      if (!channel) {
-        console.log(`❌ Salon Discord introuvable : ${route.channel}`);
-        return;
-      }
+      if (!channel) return;
 
-      // ===== LOGIQUE PIREP =====
+      // ===== LOGIQUE PIREP & MAINTENANCE =====
       if (route.type === "pirep") {
         const pirep = payload.data?.pirep ?? payload.data;
         if (!pirep) return;
 
+        // 1. Données de vol
+        const aircraftReg = safe(pirep.aircraft?.registration, "UNKNOWN");
+        const flightMinutes = pirep.flight_length || 0;
+        const flightHours = flightMinutes / 60;
+        const landingRate = pirep.landing_rate || 0;
+
+        // 2. Calcul Maintenance
+        const currentStatus = await getAircraftStatus(aircraftReg);
+        const newTotalHours = currentStatus.total_flight_hours + flightHours;
+        
+        let maintenanceAlerts = [];
+        let updatedStatus = { ...currentStatus, total_flight_hours: newTotalHours };
+
+        // Détection Hard Landing
+        if (landingRate <= -600) {
+            maintenanceAlerts.push("🚨 **AOG - HARD LANDING DÉTECTÉ** (" + landingRate + " fpm)");
+            updatedStatus.is_aog = true;
+        }
+
+        // Détection des seuils de Checks
+        if (Math.floor(newTotalHours / THRESHOLDS.D) > Math.floor(currentStatus.last_check_d / THRESHOLDS.D)) {
+            maintenanceAlerts.push("🏥 **CHECK D REQUIS** (Immobilisation Majeure)");
+        } else if (Math.floor(newTotalHours / THRESHOLDS.C) > Math.floor(currentStatus.last_check_c / THRESHOLDS.C)) {
+            maintenanceAlerts.push("🛠️ **CHECK C REQUIS** (Convoyage RPLL / Lufthansa Technik)");
+        } else if (Math.floor(newTotalHours / THRESHOLDS.B) > Math.floor(currentStatus.last_check_b / THRESHOLDS.B)) {
+            maintenanceAlerts.push("🔧 **CHECK B REQUIS**");
+        } else if (Math.floor(newTotalHours / THRESHOLDS.A) > Math.floor(currentStatus.last_check_a / THRESHOLDS.A)) {
+            maintenanceAlerts.push("🩹 **CHECK A REQUIS**");
+        }
+
+        // Sauvegarde Supabase
+        await updateAircraftStatus(updatedStatus);
+
+        // 3. Envoi Embed PIREP (Salon Normal)
         const statusInfo = getPirepStatus(pirep.status);
         const embed = new EmbedBuilder()
-          .setTitle(`PIREP – ${safe(pirep.callsign)}`)
-          .setColor(statusInfo.color)
+          .setTitle(`PIREP – ${safe(pirep.callsign)} [${aircraftReg}]`)
+          .setColor(maintenanceAlerts.length > 0 ? "#ff0000" : statusInfo.color)
           .addFields(
-            { name: "Route", value: `${safe(pirep.departure_airport?.icao, "----")} → ${safe(pirep.arrival_airport?.icao, "----")}`, inline: true },
-            { name: "Aircraft", value: safe(pirep.aircraft?.name), inline: true },
-            { name: "Network", value: safe(pirep.network, "Offline"), inline: true },
-            { name: "Flight Time", value: pirep.flight_length !== undefined ? `${Math.round(pirep.flight_length / 60)} min` : "N/A", inline: true },
-            { name: "Landing Rate", value: pirep.landing_rate !== undefined ? `${pirep.landing_rate} fpm` : "N/A", inline: true },
-            { name: "Status", value: statusInfo.label, inline: true }
+            { name: "Route", value: `${safe(pirep.departure_airport?.icao)} → ${safe(pirep.arrival_airport?.icao)}`, inline: true },
+            { name: "Landing Rate", value: `${landingRate} fpm`, inline: true },
+            { name: "Heures Cellule", value: `\`${newTotalHours.toFixed(1)}h\``, inline: true }
           )
-          .setFooter({ text: `ID PIREP : ${safe(pirep.id)} • vAMSYS` })
-          .setTimestamp(pirep.created_at ? new Date(pirep.created_at) : new Date());
+          .setFooter({ text: `vAMSYS • Prochain Check C dans ${(THRESHOLDS.C - (newTotalHours % THRESHOLDS.C)).toFixed(0)}h` })
+          .setTimestamp();
 
-        if (pirep.id) {
-          embed.addFields({ name: "Link", value: `[See on vAMSYS](https://vamsys.io/phoenix/flight-center/pireps/${pirep.id})`, inline: true });
-        }
         await channel.send({ embeds: [embed] });
+
+        // 4. Envoi Alerte Salon Maintenance (Si alerte)
+        const maintenanceChannel = router.client?.channels.cache.get(process.env.MAINTENANCE_CHANNEL_ID);
+        if (maintenanceAlerts.length > 0 && maintenanceChannel) {
+            const maintEmbed = new EmbedBuilder()
+                .setTitle(`🛠️ RAPPORT TECHNIQUE - ${aircraftReg}`)
+                .setColor("#ff0000")
+                .setDescription(`L'avion nécessite une maintenance après le vol **${safe(pirep.callsign)}**.`)
+                .addFields(
+                    { name: "Statut", value: maintenanceAlerts.join("\n") },
+                    { name: "Heures Totales", value: `\`${newTotalHours.toFixed(1)}h\``, inline: true },
+                    { name: "Lieu Maintenance", value: "Lufthansa Technik (RPLL)", inline: true }
+                )
+                .setTimestamp();
+            await maintenanceChannel.send({ content: "⚠️ **ALERTE MAINTENANCE**", embeds: [maintEmbed] });
+        }
       }
 
-      // ===== LOGIQUE PILOT ROSTER (Structure API Protocol) =====
+      // ===== LOGIQUE PILOT ROSTER =====
       if (route.type === "pilot") {
         const d = payload.data;
-        // On cherche l'objet pilote ou utilisateur dans toutes les structures possibles
         const p = d?.pilot || d; 
         const u = d?.user || p?.user;
-
-        // Extraction ultra-robuste selon la doc vAMSYS
-        const pilotName = d?.user_name || p?.name || u?.name || d?.username || "Inconnu";
-        const vaId = p?.callsign || p?.username || d?.username || "En attente";
         const eventType = payload.event;
 
         let eventTitle = "👤 Mise à jour Pilote";
         let eventColor = "#3498db";
 
-        // Mapping des événements cochés sur vAMSYS
         switch (eventType) {
-          case "pilot.registered": 
-            eventTitle = "🆕 Nouvelle Inscription"; 
-            eventColor = "#3498db"; 
-            break;
-          case "pilot.approved": 
-            eventTitle = "✅ Pilote Approuvé"; 
-            eventColor = "#2ecc71"; 
-            break;
-          case "pilot.rejected": 
-            eventTitle = "❌ Inscription Refusée"; 
-            eventColor = "#e74c3c"; 
-            break;
-          case "pilot.banned": 
-            eventTitle = "🔨 Pilote Banni"; 
-            eventColor = "#000000"; 
-            break;
-          case "pilot.unbanned": 
-            eventTitle = "🔓 Pilote Débanni"; 
-            eventColor = "#f1c40f"; 
-            break;
-          case "pilot.deleted": 
-            eventTitle = "🗑️ Compte Supprimé"; 
-            eventColor = "#95a5a6"; 
-            break;
-          case "pilot.rank_changed": 
-            eventTitle = "📈 Changement de Grade"; 
-            eventColor = "#9b59b6"; 
-            break;
+          case "pilot.registered": eventTitle = "🆕 Nouvelle Inscription"; break;
+          case "pilot.approved": eventTitle = "✅ Pilote Approuvé"; eventColor = "#2ecc71"; break;
+          case "pilot.rejected": eventTitle = "❌ Inscription Refusée"; eventColor = "#e74c3c"; break;
+          case "pilot.rank_changed": eventTitle = "📈 Changement de Grade"; eventColor = "#9b59b6"; break;
         }
 
         const embed = new EmbedBuilder()
           .setTitle(eventTitle)
           .setColor(eventColor)
           .addFields(
-            { name: "Pilote", value: safe(pilotName), inline: true },
-            { name: "Identifiant VA", value: `\`${safe(vaId)}\``, inline: true },
+            { name: "Pilote", value: safe(d?.user_name || p?.name), inline: true },
+            { name: "Identifiant", value: `\`${safe(p?.callsign || p?.username)}\``, inline: true },
             { name: "Événement", value: `\`${eventType}\``, inline: true }
           )
           .setTimestamp();
-
-        // Affichage du grade si l'info est présente (utile pour rank_changed)
-        const rankName = d?.rank?.name || p?.rank?.name || d?.new_rank?.name;
-        if (rankName) {
-          embed.addFields({ name: "Grade", value: safe(rankName), inline: false });
-        }
-
-        // Image de profil (Thumbnail)
-        const profilePic = p?.profile_picture || u?.profile_picture || d?.image;
-        if (profilePic) {
-          embed.setThumbnail(profilePic);
-        }
 
         await channel.send({ embeds: [embed] });
       }
 
       console.log(`📨 Webhook vAMSYS traité : ${payload.event}`);
-
     } catch (err) {
-      console.error("❌ Erreur lors du traitement du Webhook :", err);
+      console.error("❌ Erreur Webhook :", err);
     }
   });
 });
 
-// Attachement du client Discord
 export function attachWebhookClient(client) {
   router.client = client;
 }
