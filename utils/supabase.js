@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import 'dotenv/config';
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+// On exporte l'instance pour qu'elle soit utilisable dans index.js (pour le checker)
+export const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 // --- FONCTIONS RSS EXISTANTES ---
 
@@ -30,7 +31,7 @@ export async function markArticleAsPosted({ id, title, link, published }) {
   }
 }
 
-// --- NOUVELLES FONCTIONS DE MAINTENANCE ---
+// --- FONCTIONS DE MAINTENANCE ---
 
 /**
  * Récupère l'état de maintenance d'un avion par son immatriculation
@@ -42,11 +43,11 @@ export async function getAircraftStatus(registration) {
     .eq('registration', registration)
     .single();
   
-  if (error && error.code !== 'PGRST116') { // PGRST116 = ligne non trouvée (normal pour un nouvel avion)
+  if (error && error.code !== 'PGRST116') { 
     console.error(`❌ Erreur Supabase getAircraftStatus (${registration}):`, error.message);
   }
 
-  // Si l'avion n'existe pas, on retourne un objet par défaut (Supabase utilisera les "Default Values" à l'insertion)
+  // Retourne l'avion trouvé ou un profil neuf avec les nouvelles colonnes
   return data || { 
     registration, 
     total_flight_hours: 0, 
@@ -54,7 +55,9 @@ export async function getAircraftStatus(registration) {
     last_check_b: 0, 
     last_check_c: 0, 
     last_check_d: 0, 
-    is_aog: false 
+    is_aog: false,
+    last_pirep_id: null,    // Pour éviter les doublons d'heures
+    maint_end_at: null      // Pour le chrono de maintenance
   };
 }
 
@@ -62,9 +65,10 @@ export async function getAircraftStatus(registration) {
  * Met à jour ou insère l'état complet d'un avion
  */
 export async function updateAircraftStatus(statusData) {
+  // On utilise upsert avec onConflict sur la colonne registration
   const { error } = await supabase
     .from('aircraft_status')
-    .upsert([statusData], { onConflict: 'registration' });
+    .upsert(statusData, { onConflict: 'registration' });
 
   if (error) {
     console.error(`❌ Erreur Supabase updateAircraftStatus (${statusData.registration}):`, error.message);
