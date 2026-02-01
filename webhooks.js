@@ -5,10 +5,8 @@ import { getAircraftStatus, updateAircraftStatus } from './utils/supabase.js';
 
 const router = express.Router();
 
-// Conservation du corps brut pour la vérification de signature vAMSYS
 router.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-// Configuration des routes Webhook
 const routes = [
   { path: "/vamsys/webhook1", channel: process.env.VAMSYS_WEBHOOK1_CHANNEL, secret: process.env.VAMSYS_WEBHOOK1_SECRET, type: "pirep" },
   { path: "/vamsys/webhook2", channel: process.env.VAMSYS_WEBHOOK2_CHANNEL, secret: process.env.VAMSYS_WEBHOOK2_SECRET, type: "pilot" },
@@ -16,13 +14,11 @@ const routes = [
 
 const THRESHOLDS = { D: 20000, C: 4000, B: 1000, A: 500 };
 
-// Helper pour éviter les valeurs vides
 function safe(value, fallback = "N/A") {
   if (value === undefined || value === null || value === "") return fallback;
   return String(value);
 }
 
-// Mapper de statut pour les PIREPs
 function getPirepStatus(status) {
   const s = (status || "").toLowerCase();
   if (s === "accepted") return { label: "Accepted", color: "#2ecc71" };
@@ -49,25 +45,27 @@ routes.forEach((route) => {
       const channel = router.client?.channels.cache.get(route.channel);
       if (!channel) return;
 
-      // ===== LOGIQUE PIREP & MAINTENANCE (AVEC PROTECTION DOUBLONS) =====
       if (route.type === "pirep") {
         const pirep = payload.data?.pirep ?? payload.data;
         if (!pirep) return;
 
         const aircraftReg = safe(pirep.aircraft?.registration, "UNKNOWN");
-        const pirepId = safe(pirep.id);
+        const pirepId = safe(pirep.id); // vAMSYS ID
         const flightHours = (pirep.flight_length || 0) / 60;
         const landingRate = pirep.landing_rate || 0;
 
-        // 1. Récupération du statut actuel et vérification du doublon
         const currentStatus = await getAircraftStatus(aircraftReg);
         
-        // On vérifie si ce PIREP a déjà été comptabilisé
-        const isAlreadyProcessed = (currentStatus.last_pirep_id === pirepId);
+        // MODIFICATION ICI : On force la comparaison en String pour éviter les erreurs de type
+        const isAlreadyProcessed = currentStatus.last_pirep_id && String(currentStatus.last_pirep_id) === String(pirepId);
         
         let newTotalHours = currentStatus.total_flight_hours;
+        
         if (!isAlreadyProcessed) {
             newTotalHours += flightHours;
+            console.log(`[${aircraftReg}] ✅ Nouveau PIREP ${pirepId} : +${flightHours.toFixed(2)}h`);
+        } else {
+            console.log(`[${aircraftReg}] ✋ PIREP ${pirepId} déjà traité (Reprocess). Heures ignorées.`);
         }
 
         let maintenanceAlerts = [];
@@ -75,26 +73,22 @@ routes.forEach((route) => {
             ...currentStatus, 
             registration: aircraftReg,
             total_flight_hours: newTotalHours,
-            last_pirep_id: pirepId // On met à jour l'ID pour bloquer le prochain doublon
+            last_pirep_id: pirepId 
         };
 
-        // Détection Hard Landing (Seuil modifiable ici)
         if (landingRate <= -600) {
             maintenanceAlerts.push(`🚨 **AOG - HARD LANDING DÉTECTÉ** (${landingRate} fpm)`);
             updatedStatus.is_aog = true;
         }
 
-        // Détection des Checks
         if (Math.floor(newTotalHours / THRESHOLDS.C) > Math.floor(currentStatus.last_check_c / THRESHOLDS.C)) {
             maintenanceAlerts.push("🛠️ **CHECK C REQUIS** (Convoyage RPLL)");
         } else if (Math.floor(newTotalHours / THRESHOLDS.A) > Math.floor(currentStatus.last_check_a / THRESHOLDS.A)) {
             maintenanceAlerts.push("🩹 **CHECK A REQUIS**");
         }
 
-        // Mise à jour Supabase
         await updateAircraftStatus(updatedStatus);
 
-        // 2. ENVOI DE L'EMBED ORIGINAL (SANS HEURE CELLULE DANS LE TITRE/FIELDS)
         const statusInfo = getPirepStatus(pirep.status);
         const embed = new EmbedBuilder()
           .setTitle(`PIREP – ${safe(pirep.callsign)}`)
@@ -115,7 +109,6 @@ routes.forEach((route) => {
         }
         await channel.send({ embeds: [embed] });
 
-        // 3. ENVOI ALERTE (UNIQUEMENT DANS LE SALON MAINTENANCE)
         const maintenanceChannel = router.client?.channels.cache.get(process.env.MAINTENANCE_CHANNEL_ID);
         if (maintenanceAlerts.length > 0 && maintenanceChannel) {
             const maintEmbed = new EmbedBuilder()
@@ -131,7 +124,6 @@ routes.forEach((route) => {
         }
       }
 
-      // ===== LOGIQUE PILOT ROSTER =====
       if (route.type === "pilot") {
         const d = payload.data;
         const p = d?.pilot || d; 
@@ -169,7 +161,6 @@ routes.forEach((route) => {
         await channel.send({ embeds: [embed] });
       }
 
-      console.log(`📨 Webhook vAMSYS traité : ${payload.event}`);
     } catch (err) {
       console.error("❌ Erreur Webhook :", err);
     }
