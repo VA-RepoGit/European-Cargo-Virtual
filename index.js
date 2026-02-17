@@ -13,7 +13,8 @@ import { data as maintResetData } from './commands/maint-reset.js';
 import { execute as maintResetExec } from './commands/maint-reset-exec.js';
 import { data as fleetStatusData } from './commands/fleet-status.js';
 import { execute as fleetStatusExec } from './commands/fleet-status-exec.js';
-import { execute as metar } from './commands/metar.js';
+import { data as metarData, execute as metarExec } from './commands/metar.js';
+
 // 🆕 Ajout de la commande Maint Start
 import { data as maintStartData, execute as maintStartExec } from './commands/maint-start.js';
 
@@ -38,7 +39,8 @@ client.commands.set(statusData.name, { data: statusData, execute: statusExec });
 client.commands.set(handlingData.name, { data: handlingData, execute: handlingExec });
 client.commands.set(maintResetData.name, { data: maintResetData, execute: maintResetExec });
 client.commands.set(fleetStatusData.name, { data: fleetStatusData, execute: fleetStatusExec });
-client.commands.set(maintStartData.name, { data: maintStartData, execute: maintStartExec }); // 🆕
+client.commands.set(maintStartData.name, { data: maintStartData, execute: maintStartExec });
+client.commands.set(metarData.name, { data: metarData, execute: metarExec });
 
 // === Enregistrement des commandes sur Discord ===
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -55,7 +57,8 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
           handlingData.toJSON(),
           maintResetData.toJSON(),
           fleetStatusData.toJSON(),
-          maintStartData.toJSON() // 🆕
+          maintStartData.toJSON(),
+          metarData.toJSON()
         ] 
       }
     );
