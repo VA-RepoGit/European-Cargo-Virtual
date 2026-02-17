@@ -34,7 +34,7 @@ export async function execute(interaction) {
         if (data.results > 0) {
             const metarData = data.data[0];
             const metarEmbed = new EmbedBuilder()
-                .setTitle(`✈️ Air Weather : ${icao}`)
+                .setTitle(`📡 Weather Service : ${icao}`)
                 .setDescription(`\`\`\`\n${metarData}\n\`\`\``)
                 .setColor('#c90021')
                 .setFooter({ text: 'European Cargo Virtual - Weather Service' })
