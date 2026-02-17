@@ -13,10 +13,10 @@ const ALLOWED_CHANNELS = rawAllowed
 
 export const data = new SlashCommandBuilder()
   .setName('handling')
-  .setDescription('Affiche les parkings de la compagnie pour un aéroport donné.')
+  .setDescription('Show company parking stands for the specified airport.')
   .addStringOption(option =>
     option.setName('icao')
-      .setDescription('Code ICAO de l’aéroport (ex: EGHH)')
+      .setDescription('ICAO Airport Code (e.g. EGHH)')
       .setRequired(true)
   );
 
@@ -66,7 +66,7 @@ export async function execute(interaction) {
     });
 
   } catch (err) {
-    console.error('❌ Erreur /handling :', err);
+    console.error('❌ /handling Error :', err);
 
     try {
       if (interaction.deferred || interaction.replied) {
@@ -79,7 +79,7 @@ export async function execute(interaction) {
         });
       }
     } catch (e) {
-      console.error('Erreur secondaire lors de la réponse à l\'interaction :', e);
+      console.error('Sub-error during interaction response :', e);
     }
   }
 }
