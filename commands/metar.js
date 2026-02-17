@@ -44,7 +44,7 @@ module.exports = {
                 const metarEmbed = new EmbedBuilder()
                     .setTitle(`✈️  Air Weather : ${icao}`)
                     .setDescription(`\`\`\`\n${metarData}\n\`\`\``)
-                    .setColor(#c90021) // Rouge
+                    .setColor('#c90021') // Rouge
                     .setFooter({ text: 'European Cargo Virtual - Weather Service' })
                     .setTimestamp();
 
