@@ -13,7 +13,7 @@ import { data as maintResetData } from './commands/maint-reset.js';
 import { execute as maintResetExec } from './commands/maint-reset-exec.js';
 import { data as fleetStatusData } from './commands/fleet-status.js';
 import { execute as fleetStatusExec } from './commands/fleet-status-exec.js';
-import { execute as fleetStatusExec } from './commands/fleet-status-exec.js';
+import { execute as metar } from './commands/metar.js';
 // 🆕 Ajout de la commande Maint Start
 import { data as maintStartData, execute as maintStartExec } from './commands/maint-start.js';
 
