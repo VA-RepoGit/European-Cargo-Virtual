@@ -47,7 +47,7 @@ export async function getAircraftStatus(registration) {
     console.error(`❌ Erreur Supabase getAircraftStatus (${registration}):`, error.message);
   }
 
-  // Retourne l'avion trouvé ou un profil neuf avec les nouvelles colonnes
+  // Retourne l'avion trouvé ou un profil neuf avec les colonnes nécessaires pour l'API v3
   return data || { 
     registration, 
     total_flight_hours: 0, 
@@ -57,7 +57,9 @@ export async function getAircraftStatus(registration) {
     last_check_d: 0, 
     is_aog: false,
     last_pirep_id: null,    // Pour éviter les doublons d'heures
-    maint_end_at: null      // Pour le chrono de maintenance
+    maint_end_at: null,     // Pour le chrono de maintenance
+    fleet_id: null,         // ID de la flotte vAMSYS (requis pour API v3)
+    vamsys_internal_id: null // ID interne de l'avion vAMSYS (requis pour API v3)
   };
 }
 
