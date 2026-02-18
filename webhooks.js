@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "crypto";
 import { EmbedBuilder } from "discord.js";
 import { getAircraftStatus, updateAircraftStatus } from './utils/supabase.js';
+import { setAircraftVisibility } from './utils/vamsys.js'; // Assurez-vous de créer ce fichier utilitaire
 
 const router = express.Router();
 
@@ -13,6 +14,8 @@ const routes = [
 ];
 
 const THRESHOLDS = { D: 20000, C: 4000, B: 1000, A: 500 };
+// Durées automatiques en heures
+const MAINT_DURATIONS = { A: 12, B: 48, C: 336, D: 720 }; 
 
 function safe(value, fallback = "N/A") {
   if (value === undefined || value === null || value === "") return fallback;
@@ -50,22 +53,17 @@ routes.forEach((route) => {
         if (!pirep) return;
 
         const aircraftReg = safe(pirep.aircraft?.registration, "UNKNOWN");
-        const pirepId = safe(pirep.id); // vAMSYS ID
+        const pirepId = safe(pirep.id);
         const flightHours = (pirep.flight_length || 0) / 60;
         const landingRate = pirep.landing_rate || 0;
+        const arrivalIcao = safe(pirep.arrival_airport?.icao, "----");
 
         const currentStatus = await getAircraftStatus(aircraftReg);
-        
-        // MODIFICATION ICI : On force la comparaison en String pour éviter les erreurs de type
         const isAlreadyProcessed = currentStatus.last_pirep_id && String(currentStatus.last_pirep_id) === String(pirepId);
         
         let newTotalHours = currentStatus.total_flight_hours;
-        
         if (!isAlreadyProcessed) {
             newTotalHours += flightHours;
-            console.log(`[${aircraftReg}] ✅ Nouveau PIREP ${pirepId} : +${flightHours.toFixed(2)}h`);
-        } else {
-            console.log(`[${aircraftReg}] ✋ PIREP ${pirepId} déjà traité (Reprocess). Heures ignorées.`);
         }
 
         let maintenanceAlerts = [];
@@ -76,32 +74,73 @@ routes.forEach((route) => {
             last_pirep_id: pirepId 
         };
 
+        // --- LOGIQUE DE MAINTENANCE AUTOMATIQUE ---
+        let maintenanceType = null;
+        let maintenanceEnd = null;
+        const isAtRPLL = arrivalIcao === "RPLL";
+
+        // Hard Landing
         if (landingRate <= -600) {
-            maintenanceAlerts.push(`🚨 **AOG - HARD LANDING DÉTECTÉ** (${landingRate} fpm)`);
+            maintenanceAlerts.push("🚨 **AOG - HARD LANDING DETECTED**");
             updatedStatus.is_aog = true;
         }
 
-        if (Math.floor(newTotalHours / THRESHOLDS.C) > Math.floor(currentStatus.last_check_c / THRESHOLDS.C)) {
-            maintenanceAlerts.push("🛠️ **CHECK C REQUIS** (Convoyage RPLL)");
-        } else if (Math.floor(newTotalHours / THRESHOLDS.A) > Math.floor(currentStatus.last_check_a / THRESHOLDS.A)) {
-            maintenanceAlerts.push("🩹 **CHECK A REQUIS**");
+        // Check des seuils (D > C > B > A)
+        if (Math.floor(newTotalHours / THRESHOLDS.D) > Math.floor(currentStatus.last_check_d / THRESHOLDS.D)) {
+            if (isAtRPLL) {
+                maintenanceType = "D";
+                maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.D * 3600000);
+            } else {
+                maintenanceAlerts.push("🚨 **FERRY FLIGHT REQUIRED**: Check D overdue. Aircraft must return to RPLL.");
+            }
+        } 
+        else if (Math.floor(newTotalHours / THRESHOLDS.C) > Math.floor(currentStatus.last_check_c / THRESHOLDS.C)) {
+            if (isAtRPLL) {
+                maintenanceType = "C";
+                maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.C * 3600000);
+            } else {
+                maintenanceAlerts.push("🛠️ **FERRY FLIGHT REQUIRED**: Check C overdue. Destination RPLL mandatory.");
+            }
+        }
+        else if (Math.floor(newTotalHours / THRESHOLDS.B) > Math.floor(currentStatus.last_check_b / THRESHOLDS.B)) {
+            maintenanceType = "B";
+            maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.B * 3600000);
+        }
+        else if (Math.floor(newTotalHours / THRESHOLDS.A) > Math.floor(currentStatus.last_check_a / THRESHOLDS.A)) {
+            maintenanceType = "A";
+            maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.A * 3600000);
+        }
+
+        // Activation de la maintenance automatique
+        if (maintenanceType && maintenanceEnd) {
+            updatedStatus.is_aog = true;
+            updatedStatus.maint_end_at = maintenanceEnd.toISOString();
+            updatedStatus[`last_check_${maintenanceType.toLowerCase()}`] = newTotalHours;
+
+            // Masquage API vAMSYS
+            if (currentStatus.fleet_id && currentStatus.vamsys_internal_id) {
+                await setAircraftVisibility(currentStatus.fleet_id, currentStatus.vamsys_internal_id, true);
+            }
+            
+            maintenanceAlerts.push(`🔧 **Automatic Check ${maintenanceType} started**. Finished at: <t:${Math.floor(maintenanceEnd.getTime()/1000)}:f>`);
         }
 
         await updateAircraftStatus(updatedStatus);
 
+        // --- ENVOI DES EMBEDS (PIREP) ---
         const statusInfo = getPirepStatus(pirep.status);
         const embed = new EmbedBuilder()
           .setTitle(`PIREP – ${safe(pirep.callsign)}`)
           .setColor(statusInfo.color)
           .addFields(
-            { name: "Route", value: `${safe(pirep.departure_airport?.icao, "----")} → ${safe(pirep.arrival_airport?.icao, "----")}`, inline: true },
+            { name: "Route", value: `${safe(pirep.departure_airport?.icao, "----")} → ${arrivalIcao}`, inline: true },
             { name: "Aircraft", value: safe(pirep.aircraft?.name), inline: true },
             { name: "Network", value: safe(pirep.network, "Offline"), inline: true },
             { name: "Flight Time", value: pirep.flight_length !== undefined ? `${Math.round(pirep.flight_length)} min` : "N/A", inline: true },
-            { name: "Landing Rate", value: pirep.landing_rate !== undefined ? `${pirep.landing_rate} fpm` : "N/A", inline: true },
+            { name: "Landing Rate", value: `${landingRate} fpm`, inline: true },
             { name: "Status", value: statusInfo.label, inline: true }
           )
-          .setFooter({ text: `ID PIREP : ${safe(pirep.id)} • vAMSYS` })
+          .setFooter({ text: `PIREP ID: ${safe(pirep.id)} • vAMSYS` })
           .setTimestamp(pirep.created_at ? new Date(pirep.created_at) : new Date());
 
         if (pirep.id) {
@@ -109,51 +148,53 @@ routes.forEach((route) => {
         }
         await channel.send({ embeds: [embed] });
 
+        // --- ENVOI DES ALERTES MAINTENANCE ---
         const maintenanceChannel = router.client?.channels.cache.get(process.env.MAINTENANCE_CHANNEL_ID);
         if (maintenanceAlerts.length > 0 && maintenanceChannel) {
             const maintEmbed = new EmbedBuilder()
-                .setTitle(`🛠️ RAPPORT TECHNIQUE - ${aircraftReg}`)
+                .setTitle(`🛠️ TECHNICAL REPORT - ${aircraftReg}`)
                 .setColor("#ff0000")
-                .setDescription(`L'avion nécessite une maintenance après le vol **${safe(pirep.callsign)}**.`)
+                .setDescription(`Maintenance required after flight **${safe(pirep.callsign)}**.`)
                 .addFields(
-                    { name: "Problème(s)", value: maintenanceAlerts.join("\n") },
-                    { name: "Heures Totales Cellule", value: `\`${newTotalHours.toFixed(1)}h\``, inline: true }
+                    { name: "Issue(s)", value: maintenanceAlerts.join("\n") },
+                    { name: "Total Airframe Hours", value: `\`${newTotalHours.toFixed(1)}h\``, inline: true }
                 )
                 .setTimestamp();
-            await maintenanceChannel.send({ content: "⚠️ **ALERTE MAINTENANCE**", embeds: [maintEmbed] });
+            await maintenanceChannel.send({ content: "⚠️ **MAINTENANCE ALERT**", embeds: [maintEmbed] });
         }
       }
 
+      // Webhook Pilot (Inchangé)
       if (route.type === "pilot") {
         const d = payload.data;
         const p = d?.pilot || d; 
         const u = d?.user || p?.user;
-        const pilotName = d?.user_name || p?.name || u?.name || d?.username || "Inconnu";
-        const vaId = p?.callsign || p?.username || d?.username || "En attente";
+        const pilotName = d?.user_name || p?.name || u?.name || d?.username || "Unknown";
+        const vaId = p?.callsign || p?.username || d?.username || "Pending";
         const eventType = payload.event;
 
-        let eventTitle = "👤 Mise à jour Pilote";
+        let eventTitle = "👤 Pilot Update";
         let eventColor = "#3498db";
 
         switch (eventType) {
-          case "pilot.registered": eventTitle = "🆕 Nouvelle Inscription"; break;
-          case "pilot.approved": eventTitle = "✅ Pilote Approuvé"; eventColor = "#2ecc71"; break;
-          case "pilot.rejected": eventTitle = "❌ Inscription Refusée"; eventColor = "#e74c3c"; break;
-          case "pilot.rank_changed": eventTitle = "📈 Changement de Grade"; eventColor = "#9b59b6"; break;
+          case "pilot.registered": eventTitle = "🆕 New Registration"; break;
+          case "pilot.approved": eventTitle = "✅ Pilot Approved"; eventColor = "#2ecc71"; break;
+          case "pilot.rejected": eventTitle = "❌ Registration Rejected"; eventColor = "#e74c3c"; break;
+          case "pilot.rank_changed": eventTitle = "📈 Rank Promoted"; eventColor = "#9b59b6"; break;
         }
 
         const embed = new EmbedBuilder()
           .setTitle(eventTitle)
           .setColor(eventColor)
           .addFields(
-            { name: "Pilote", value: safe(pilotName), inline: true },
-            { name: "Identifiant VA", value: `\`${safe(vaId)}\``, inline: true },
-            { name: "Événement", value: `\`${eventType}\``, inline: true }
+            { name: "Pilot", value: safe(pilotName), inline: true },
+            { name: "VA ID", value: `\`${safe(vaId)}\``, inline: true },
+            { name: "Event", value: `\`${eventType}\``, inline: true }
           )
           .setTimestamp();
 
         const rankName = d?.rank?.name || p?.rank?.name || d?.new_rank?.name;
-        if (rankName) embed.addFields({ name: "Grade", value: safe(rankName), inline: false });
+        if (rankName) embed.addFields({ name: "Rank", value: safe(rankName), inline: false });
 
         const profilePic = p?.profile_picture || u?.profile_picture || d?.image;
         if (profilePic) embed.setThumbnail(profilePic);
@@ -162,7 +203,7 @@ routes.forEach((route) => {
       }
 
     } catch (err) {
-      console.error("❌ Erreur Webhook :", err);
+      console.error("❌ Webhook Error :", err);
     }
   });
 });
