@@ -2,7 +2,7 @@ import express from "express";
 import crypto from "crypto";
 import { EmbedBuilder } from "discord.js";
 import { getAircraftStatus, updateAircraftStatus } from './utils/supabase.js';
-import { setAircraftVisibility } from './utils/vamsys.js'; // Assurez-vous de créer ce fichier utilitaire
+import { setAircraftVisibility } from './utils/vamsys.js';
 
 const router = express.Router();
 
@@ -14,7 +14,6 @@ const routes = [
 ];
 
 const THRESHOLDS = { D: 20000, C: 4000, B: 1000, A: 500 };
-// Durées automatiques en heures
 const MAINT_DURATIONS = { A: 12, B: 48, C: 336, D: 720 }; 
 
 function safe(value, fallback = "N/A") {
@@ -74,18 +73,18 @@ routes.forEach((route) => {
             last_pirep_id: pirepId 
         };
 
-        // --- LOGIQUE DE MAINTENANCE AUTOMATIQUE ---
+        // --- LOGIQUE DE MAINTENANCE HIÉRARCHISÉE (Une seule choisie) ---
         let maintenanceType = null;
         let maintenanceEnd = null;
         const isAtRPLL = arrivalIcao === "RPLL";
 
-        // Hard Landing
+        // 1. Hard Landing (Priorité absolue)
         if (landingRate <= -600) {
             maintenanceAlerts.push("🚨 **AOG - HARD LANDING DETECTED**");
             updatedStatus.is_aog = true;
         }
 
-        // Check des seuils (D > C > B > A)
+        // 2. Sélection de la maintenance la plus lourde (D > C > B > A)
         if (Math.floor(newTotalHours / THRESHOLDS.D) > Math.floor(currentStatus.last_check_d / THRESHOLDS.D)) {
             if (isAtRPLL) {
                 maintenanceType = "D";
@@ -111,18 +110,18 @@ routes.forEach((route) => {
             maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.A * 3600000);
         }
 
-        // Activation de la maintenance automatique
+        // 3. Application de la maintenance et masquage API
         if (maintenanceType && maintenanceEnd) {
             updatedStatus.is_aog = true;
             updatedStatus.maint_end_at = maintenanceEnd.toISOString();
             updatedStatus[`last_check_${maintenanceType.toLowerCase()}`] = newTotalHours;
 
-            // Masquage API vAMSYS
+            // Masquage API vAMSYS (Utilise maintenant vos colonnes remplies)
             if (currentStatus.fleet_id && currentStatus.vamsys_internal_id) {
                 await setAircraftVisibility(currentStatus.fleet_id, currentStatus.vamsys_internal_id, true);
             }
             
-            maintenanceAlerts.push(`🔧 **Automatic Check ${maintenanceType} started**. Finished at: <t:${Math.floor(maintenanceEnd.getTime()/1000)}:f>`);
+            maintenanceAlerts.push(`🔧 **Automatic Check ${maintenanceType} started**. Estimated completion: <t:${Math.floor(maintenanceEnd.getTime()/1000)}:f>`);
         }
 
         await updateAircraftStatus(updatedStatus);
@@ -164,7 +163,7 @@ routes.forEach((route) => {
         }
       }
 
-      // Webhook Pilot (Inchangé)
+      // Webhook Pilot
       if (route.type === "pilot") {
         const d = payload.data;
         const p = d?.pilot || d; 
