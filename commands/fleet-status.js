@@ -1,6 +1,6 @@
-import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js'; // Ajout de l'import ici
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
 
 export const data = new SlashCommandBuilder()
   .setName('fleet_status')
-  .setDescription('Affiche l\'état de maintenance de toute la flotte')
-  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator); // Réservé aux admins
+  .setDescription('Display detailed maintenance status (A, B, C) for the entire fleet')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
