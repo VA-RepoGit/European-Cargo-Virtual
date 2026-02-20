@@ -34,12 +34,13 @@ export async function execute(interaction) {
       const nextA = (THRESHOLDS.A - (ac.total_flight_hours % THRESHOLDS.A)).toFixed(1);
       const nextB = (THRESHOLDS.B - (ac.total_flight_hours % THRESHOLDS.B)).toFixed(1);
       const nextC = (THRESHOLDS.C - (ac.total_flight_hours % THRESHOLDS.C)).toFixed(1);
+      const nextD = (THRESHOLDS.D - (ac.total_flight_hours % THRESHOLDS.D)).toFixed(1);
 
       // Determine status emoji and label
       let statusEmoji = "🟢 **OK**";
       if (ac.is_aog) {
         statusEmoji = "🔴 **AOG**";
-      } else if (nextA < 50 || nextB < 50 || nextC < 100) {
+      } else if (nextA < 50 || nextB < 50 || nextC < 100 || nextD < 500) {
         statusEmoji = "🟠 **CHECK DUE**";
       }
 
@@ -50,7 +51,8 @@ export async function execute(interaction) {
         const endTimestamp = Math.floor(new Date(ac.maint_end_at).getTime() / 1000);
         fleetList += `└ Status: ${statusEmoji} | ⏳ Release: <t:${endTimestamp}:R>\n\n`;
       } else {
-        fleetList += `└ Status: ${statusEmoji} | Next: \`A:${nextA}h\` \`B:${nextB}h\` \`C:${nextC}h\`\n\n`;
+        // Affichage des 4 paliers
+        fleetList += `└ Status: ${statusEmoji} | Next: \`A:${nextA}h\` \`B:${nextB}h\` \`C:${nextC}h\` \`D:${nextD}h\`\n\n`;
       }
     });
 
