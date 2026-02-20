@@ -3,9 +3,19 @@ import crypto from "crypto";
 import { EmbedBuilder } from "discord.js";
 import { getAircraftStatus, updateAircraftStatus } from './utils/supabase.js';
 import { setAircraftVisibility } from './utils/vamsys.js';
-import { updateGSheet } from './utils/gsheet.js'; // Import de l'utilitaire Google Sheet
+import { updateGSheet } from './utils/gsheet.js';
 
 const router = express.Router();
+
+// Variable globale pour stocker le client Discord
+let discordClient = null;
+
+/**
+ * Exporte la fonction attendue par index.js pour lier le bot
+ */
+export const attachWebhookClient = (client) => {
+  discordClient = client;
+};
 
 router.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
@@ -44,7 +54,10 @@ router.post("/vamsys/*", async (req, res) => {
 
   try {
     const payload = req.body;
-    const channel = await req.client.channels.fetch(route.channel);
+    
+    // On utilise le client Discord attaché
+    if (!discordClient) return console.error("Discord client not attached to webhooks");
+    const channel = await discordClient.channels.fetch(route.channel);
     if (!channel) return;
 
     if (route.type === "pirep") {
@@ -65,7 +78,6 @@ router.post("/vamsys/*", async (req, res) => {
       let maintenanceEnd = null;
       let maintenanceAlerts = [];
 
-      // Vérification des seuils
       if (newTotalHours - (currentStatus.last_check_d || 0) >= THRESHOLDS.D) maintenanceType = 'D';
       else if (newTotalHours - (currentStatus.last_check_c || 0) >= THRESHOLDS.C) maintenanceType = 'C';
       else if (newTotalHours - (currentStatus.last_check_b || 0) >= THRESHOLDS.B) maintenanceType = 'B';
@@ -84,18 +96,15 @@ router.post("/vamsys/*", async (req, res) => {
         updatedStatus.maint_end_at = maintenanceEnd.toISOString();
         updatedStatus[`last_check_${maintenanceType.toLowerCase()}`] = newTotalHours;
 
-        // Masquer l'avion sur vAMSYS (Phoenix)
         if (currentStatus.fleet_id && currentStatus.vamsys_internal_id) {
           await setAircraftVisibility(currentStatus.fleet_id, currentStatus.vamsys_internal_id, true);
         }
 
         // --- SYNCHRO GOOGLE SHEET ---
-        // Formatage de la date RTS pour l'affichage (JJ/MM HH:mmZ)
         const rtsFormatted = maintenanceEnd.toLocaleString('fr-FR', { 
             day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' 
         }) + "Z";
         
-        // Envoi vers le script Google
         await updateGSheet(aircraftReg, `${maintenanceType} CHECK`, rtsFormatted);
         // ----------------------------
 
@@ -126,7 +135,6 @@ router.post("/vamsys/*", async (req, res) => {
       await channel.send({ embeds: [embed] });
 
     } else if (route.type === "pilot") {
-      // Logique Pilot (identique à votre fichier original)
       const d = payload.data || {};
       const p = d.pilot || {};
       const u = d.user || {};
