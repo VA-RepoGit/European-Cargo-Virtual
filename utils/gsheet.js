@@ -7,7 +7,7 @@ import fetch from 'node-fetch';
  * @param {string} rts - Date de retour formatée (ou vide pour la sortie)
  */
 export async function updateGSheet(reg, check, rts = "") {
-  const url = process.env.vURO_Sheet;
+  const url = process.env.VURO_SHEET;
   
   try {
     await fetch(url, {
