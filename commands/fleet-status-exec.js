@@ -3,6 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
+// Maintenance thresholds
+const THRESHOLDS = { A: 500, B: 1000, C: 4000, D: 20000 };
+
 export async function execute(interaction) {
   try {
     await interaction.deferReply();
@@ -15,23 +18,40 @@ export async function execute(interaction) {
     if (error) throw error;
 
     if (!fleet || fleet.length === 0) {
-      return interaction.editReply("📭 Aucun avion n'est encore enregistré dans le système de maintenance.");
+      return interaction.editReply("📭 No aircraft registered in the maintenance system.");
     }
 
     const embed = new EmbedBuilder()
-      .setTitle("✈️ État de la Flotte - European Cargo")
+      .setTitle("✈️ Fleet Status - European Cargo")
       .setColor("#c90021")
       .setTimestamp()
-      .setFooter({ text: "Système de suivi technique • Lufthansa Technik" });
+      .setFooter({ text: "Technical Monitoring System • Lufthansa Technik" });
 
     let fleetList = "";
 
     fleet.forEach(ac => {
-      const hoursToC = (4000 - (ac.total_flight_hours % 4000)).toFixed(0);
-      const statusEmoji = ac.is_aog ? "🔴 **AOG**" : (hoursToC < 100 ? "🟠 **CHECK DUE**" : "🟢 **OK**");
+      // Calculate remaining hours for each threshold
+      const nextA = (THRESHOLDS.A - (ac.total_flight_hours % THRESHOLDS.A)).toFixed(1);
+      const nextB = (THRESHOLDS.B - (ac.total_flight_hours % THRESHOLDS.B)).toFixed(1);
+      const nextC = (THRESHOLDS.C - (ac.total_flight_hours % THRESHOLDS.C)).toFixed(1);
+
+      // Determine status emoji and label
+      let statusEmoji = "🟢 **OK**";
+      if (ac.is_aog) {
+        statusEmoji = "🔴 **AOG**";
+      } else if (nextA < 50 || nextB < 50 || nextC < 100) {
+        statusEmoji = "🟠 **CHECK DUE**";
+      }
+
+      fleetList += `**${ac.registration}** : \`${ac.total_flight_hours.toFixed(1)}h\`\n`;
       
-      fleetList += `**${ac.registration}** : ${ac.total_flight_hours.toFixed(1)}h\n`;
-      fleetList += `└ Statut: ${statusEmoji} | Next Check C: \`${hoursToC}h\`\n\n`;
+      if (ac.is_aog && ac.maint_end_at) {
+        // Display relative timestamp for maintenance end
+        const endTimestamp = Math.floor(new Date(ac.maint_end_at).getTime() / 1000);
+        fleetList += `└ Status: ${statusEmoji} | ⏳ Release: <t:${endTimestamp}:R>\n\n`;
+      } else {
+        fleetList += `└ Status: ${statusEmoji} | Next: \`A:${nextA}h\` \`B:${nextB}h\` \`C:${nextC}h\`\n\n`;
+      }
     });
 
     embed.setDescription(fleetList);
@@ -39,7 +59,7 @@ export async function execute(interaction) {
     await interaction.editReply({ embeds: [embed] });
 
   } catch (err) {
-    console.error('Erreur /fleet_status :', err);
-    await interaction.editReply("❌ Erreur lors de la récupération de l'état de la flotte.");
+    console.error('Error /fleet_status :', err);
+    await interaction.editReply("❌ Error while fetching fleet status.");
   }
 }
