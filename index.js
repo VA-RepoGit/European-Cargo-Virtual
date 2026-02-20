@@ -3,18 +3,8 @@ import express from 'express';
 import { Client, GatewayIntentBits, Partials, Collection, REST, Routes, EmbedBuilder } from 'discord.js';
 import { fetchAndPostRSS } from './rss.js';
 import { supabase } from './utils/supabase.js';
-import { setAircraftVisibility } from './utils/vamsys.js'; // Import de la nouvelle logique API
-
-// === Import des commandes (maintStart retiré car automatique) ===
-import { data as announceData, execute as announceExecute } from './commands/announce.js';
-import { data as statusData } from './commands/status.js';
-import { execute as statusExec } from './commands/status-exec.js';
-import { data as handlingData, execute as handlingExec } from './commands/handling.js';
-import { data as maintResetData } from './commands/maint-reset.js';
-import { execute as maintResetExec } from './commands/maint-reset-exec.js';
-import { data as fleetStatusData } from './commands/fleet-status.js';
-import { execute as fleetStatusExec } from './commands/fleet-status-exec.js';
-import { data as metarData, execute as metarExec } from './commands/metar.js';
+import { setAircraftVisibility } from './utils/vamsys.js';
+import { updateGSheet } from './utils/gsheet.js'; // Import de l'utilitaire de synchronisation Google Sheet
 
 dotenv.config();
 
@@ -31,6 +21,16 @@ export const client = new Client({
 });
 
 // === Initialisation des commandes slash ===
+import { data as announceData, execute as announceExecute } from './commands/announce.js';
+import { data as statusData } from './commands/status.js';
+import { execute as statusExec } from './commands/status-exec.js';
+import { data as handlingData, execute as handlingExec } from './commands/handling.js';
+import { data as maintResetData } from './commands/maint-reset.js';
+import { execute as maintResetExec } from './commands/maint-reset-exec.js';
+import { data as fleetStatusData } from './commands/fleet-status.js';
+import { execute as fleetStatusExec } from './commands/fleet-status-exec.js';
+import { data as metarData, execute as metarExec } from './commands/metar.js';
+
 client.commands = new Collection();
 client.commands.set(announceData.name, { data: announceData, execute: announceExecute });
 client.commands.set(statusData.name, { data: statusData, execute: statusExec });
@@ -81,7 +81,11 @@ function startMaintenanceChecker(client) {
                 await setAircraftVisibility(ac.fleet_id, ac.vamsys_internal_id, false);
             }
 
-            // 2. Send English notification to Discord
+            // 2. Synchronisation avec Google Sheet (Sortie de maintenance)
+            // Envoie "Active" pour vider les colonnes ACTIVE CHECK et RTS, et remettre le STATUS sur Active
+            await updateGSheet(ac.registration, "Active", "");
+
+            // 3. Send notification to Discord
             const channel = client.channels.cache.get(process.env.MAINTENANCE_CHANNEL_ID);
             if (channel) {
                 const embed = new EmbedBuilder()
@@ -93,13 +97,13 @@ function startMaintenanceChecker(client) {
                 await channel.send({ content: `🔔 Attention <@${process.env.OWNER_ID}>`, embeds: [embed] });
             }
 
-            // 3. Update Database to release aircraft
+            // 4. Update Database to release aircraft
             await supabase
                 .from('aircraft_status')
                 .update({ maint_end_at: null, is_aog: false })
                 .eq('registration', ac.registration);
             
-            console.log(`🔧 [Maintenance] ${ac.registration} released and restored to Phoenix.`);
+            console.log(`🔧 [Maintenance] ${ac.registration} released, restored to Phoenix and synchronized with Google Sheet.`);
         }
     }, 60000); // Check every minute
 }
