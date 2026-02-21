@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { EmbedBuilder } from "discord.js";
 import { getAircraftStatus, updateAircraftStatus } from './utils/supabase.js';
 import { setAircraftVisibility } from './utils/vamsys.js';
+import { updateGSheet } from './utils/gsheet.js'; // AJOUT : Importation de l'utilitaire Google Sheet
 
 const router = express.Router();
 
@@ -51,7 +52,6 @@ routes.forEach((route) => {
         const pirep = payload.data?.pirep ?? payload.data;
         if (!pirep) return;
 
-        // Récupération des données selon votre structure d'origine
         const aircraftReg = safe(pirep.aircraft?.registration, "UNKNOWN");
         const aircraftName = safe(pirep.aircraft?.name, "N/A");
         const pirepId = safe(pirep.id);
@@ -77,7 +77,6 @@ routes.forEach((route) => {
             last_pirep_id: pirepId 
         };
 
-        // --- LOGIQUE DE MAINTENANCE HIÉRARCHISÉE ---
         let maintenanceType = null;
         let maintenanceEnd = null;
         const isAtRPLL = arrivalIcao === "RPLL";
@@ -117,12 +116,19 @@ routes.forEach((route) => {
                 await setAircraftVisibility(currentStatus.fleet_id, currentStatus.vamsys_internal_id, true);
             }
             
+            // --- SYNC GOOGLE SHEET ---
+            const rtsFormatted = maintenanceEnd.toLocaleString('fr-FR', { 
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' 
+            }) + "Z";
+            
+            await updateGSheet(aircraftReg, `${maintenanceType} CHECK`, rtsFormatted);
+            // --------------------------
+
             maintenanceAlerts.push(`🔧 **Automatic Check ${maintenanceType} started**. Finished at: <t:${Math.floor(maintenanceEnd.getTime()/1000)}:f>`);
         }
 
         await updateAircraftStatus(updatedStatus);
 
-        // --- ENVOI DE L'EMBED PIREP (RESTAURÉ COMME AVANT) ---
         const statusInfo = getPirepStatus(pirep.status);
         const embed = new EmbedBuilder()
           .setTitle(`PIREP – ${callsign}`)
@@ -143,7 +149,6 @@ routes.forEach((route) => {
         }
         await channel.send({ embeds: [embed] });
 
-        // --- ENVOI DES ALERTES MAINTENANCE ---
         const maintenanceChannel = router.client?.channels.cache.get(process.env.MAINTENANCE_CHANNEL_ID);
         if (maintenanceAlerts.length > 0 && maintenanceChannel) {
             const maintEmbed = new EmbedBuilder()
@@ -159,7 +164,6 @@ routes.forEach((route) => {
         }
       }
 
-      // Webhook Pilot (Traduit en Anglais)
       if (route.type === "pilot") {
         const d = payload.data;
         const p = d?.pilot || d; 
