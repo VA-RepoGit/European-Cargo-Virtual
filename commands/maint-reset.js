@@ -16,6 +16,6 @@ export const data = new SlashCommandBuilder()
         { name: 'Check B (1000h)', value: 'B' },
         { name: 'Check C (4000h - RPLL)', value: 'C' },
         { name: 'Check D (20000h)', value: 'D' },
-        { name: 'Réparation AOG (Hard Landing)', value: 'AOG' }
+        { name: 'Conditional Inspection (Hard Landing)', value: 'AOG' }
       ))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
