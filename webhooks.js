@@ -15,7 +15,7 @@ const routes = [
 ];
 
 const THRESHOLDS = { D: 20000, C: 4000, B: 1000, A: 500 };
-const MAINT_DURATIONS = { A: 12, B: 48, C: 336, D: 720 }; 
+const MAINT_DURATIONS = { A: 12, B: 48, C: 336, D: 720, CONDITIONAL: 6 }; 
 
 function safe(value, fallback = "N/A") {
   if (value === undefined || value === null || value === "") return fallback;
@@ -81,11 +81,21 @@ routes.forEach((route) => {
         let maintenanceEnd = null;
         const isAtRPLL = arrivalIcao === "RPLL";
 
+        // 1. GESTION INDÉPENDANTE DU HARD LANDING (Conditional Inspection)
         if (landingRate <= -600) {
-            maintenanceAlerts.push("🚨 **AOG - HARD LANDING DETECTED**");
+            maintenanceAlerts.push(`🚨 **CONDITIONAL INSPECTION REQUIRED**: Hard Landing detected (${landingRate} fpm).`);
             updatedStatus.is_aog = true;
+            maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.CONDITIONAL * 3600000);
+            updatedStatus.maint_end_at = maintenanceEnd.toISOString();
+            
+            // Sync GSheet pour Hard Landing
+            const rtsFormatted = maintenanceEnd.toLocaleString('fr-FR', { 
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' 
+            }) + "Z";
+            await updateGSheet(aircraftReg, `CONDITIONAL INSPECTION`, rtsFormatted);
         }
 
+        // 2. GESTION DE LA MAINTENANCE PROGRAMMÉE (Uniquement si pas déjà en AOG Hard Landing, ou cumulable)
         if (Math.floor(newTotalHours / THRESHOLDS.D) > Math.floor(currentStatus.last_check_d / THRESHOLDS.D)) {
             if (isAtRPLL) {
                 maintenanceType = "D";
@@ -107,24 +117,24 @@ routes.forEach((route) => {
             maintenanceEnd = new Date(Date.now() + MAINT_DURATIONS.A * 3600000);
         }
 
+        // Si une maintenance programmée est déclenchée
         if (maintenanceType && maintenanceEnd) {
             updatedStatus.is_aog = true;
             updatedStatus.maint_end_at = maintenanceEnd.toISOString();
             updatedStatus[`last_check_${maintenanceType.toLowerCase()}`] = newTotalHours;
 
-            if (currentStatus.fleet_id && currentStatus.vamsys_internal_id) {
-                await setAircraftVisibility(currentStatus.fleet_id, currentStatus.vamsys_internal_id, true);
-            }
-            
-            // --- SYNC GOOGLE SHEET ---
+            // Sync GSheet pour Check
             const rtsFormatted = maintenanceEnd.toLocaleString('fr-FR', { 
                 day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' 
             }) + "Z";
-            
             await updateGSheet(aircraftReg, `${maintenanceType} CHECK`, rtsFormatted);
-            // --------------------------
 
             maintenanceAlerts.push(`🔧 **Automatic Check ${maintenanceType} started**. Finished at: <t:${Math.floor(maintenanceEnd.getTime()/1000)}:f>`);
+        }
+
+        // Masquage vAMSYS si AOG
+        if (updatedStatus.is_aog && currentStatus.fleet_id && currentStatus.vamsys_internal_id) {
+            await setAircraftVisibility(currentStatus.fleet_id, currentStatus.vamsys_internal_id, true);
         }
 
         await updateAircraftStatus(updatedStatus);
