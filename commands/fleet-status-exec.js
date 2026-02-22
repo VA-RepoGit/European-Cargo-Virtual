@@ -38,8 +38,15 @@ export async function execute(interaction) {
 
       // Determine status emoji and label
       let statusEmoji = "🟢 **OK**";
+      let statusLabel = "";
+
       if (ac.is_aog) {
         statusEmoji = "🔴 **AOG**";
+        
+        // Détermination du label de maintenance
+        // Si aucune check n'est théoriquement due (compteur loin du seuil), c'est une inspection conditionnelle
+        const isCheckDue = nextA <= 0.1 || nextB <= 0.1 || nextC <= 0.1 || nextD <= 0.1;
+        statusLabel = isCheckDue ? "MAINTENANCE" : "CONDITIONAL INSPECTION";
       } else if (nextA < 50 || nextB < 50 || nextC < 100 || nextD < 500) {
         statusEmoji = "🟠 **CHECK DUE**";
       }
@@ -47,11 +54,11 @@ export async function execute(interaction) {
       fleetList += `**${ac.registration}** : \`${ac.total_flight_hours.toFixed(1)}h\`\n`;
       
       if (ac.is_aog && ac.maint_end_at) {
-        // Display relative timestamp for maintenance end
+        // Display relative timestamp for maintenance end and the specific status label
         const endTimestamp = Math.floor(new Date(ac.maint_end_at).getTime() / 1000);
-        fleetList += `└ Status: ${statusEmoji} | ⏳ Release: <t:${endTimestamp}:R>\n\n`;
+        fleetList += `└ Status: ${statusEmoji} | **${statusLabel}** | ⏳ Release: <t:${endTimestamp}:R>\n\n`;
       } else {
-        // Affichage des 4 paliers
+        // Affichage des 4 paliers standards
         fleetList += `└ Status: ${statusEmoji} | Next: \`A:${nextA}h\` \`B:${nextB}h\` \`C:${nextC}h\` \`D:${nextD}h\`\n\n`;
       }
     });
